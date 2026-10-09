@@ -26,17 +26,29 @@ dp = Dispatcher()
 
 async def upload_vk_photo(session: aiohttp.ClientSession, file_path: str) -> str:
     """Загружает фото на стену ВК и возвращает строку attachment (photoX_Y)"""
+    logging.info(f"📷 Начинаем загрузку фото в ВК: {os.path.basename(file_path)}")
+    
+    # 1. Получаем URL для загрузки
     async with session.get("https://api.vk.com/method/photos.getWallUploadServer", 
-                           params={"group_id": VK_GROUP_ID, "access_token": VK_TOKEN, "v": VK_API_VERSION}) as resp:
+                           params={
+                               "group_id": VK_GROUP_ID,
+                               "access_token": VK_TOKEN,
+                               "v": VK_API_VERSION
+                           }) as resp:
         data = await resp.json()
         if "error" in data:
+            logging.error(f"❌ VK getWallUploadServer error: {data['error']}")
             raise Exception(f"VK getWallUploadServer: {data['error']}")
         upload_url = data["response"]["upload_url"]
+        logging.info(f"✅ Получен upload_url для фото")
 
+    # 2. Загружаем сам файл
     with open(file_path, "rb") as f:
         async with session.post(upload_url, data={"photo": f}) as resp:
             upload_data = await resp.json()
+            logging.info(f"✅ Файл загружен на сервер ВК")
 
+    # 3. Сохраняем фото на сервере ВК
     async with session.get("https://api.vk.com/method/photos.saveWallPhoto", 
                            params={
                                "group_id": VK_GROUP_ID,
@@ -48,12 +60,18 @@ async def upload_vk_photo(session: aiohttp.ClientSession, file_path: str) -> str
                            }) as resp:
         data = await resp.json()
         if "error" in data:
+            logging.error(f"❌ VK saveWallPhoto error: {data['error']}")
             raise Exception(f"VK saveWallPhoto: {data['error']}")
         photo_obj = data["response"][0]
-        return f"photo{photo_obj['owner_id']}_{photo_obj['id']}"
+        attachment = f"photo{photo_obj['owner_id']}_{photo_obj['id']}"
+        logging.info(f"✅ Фото сохранено: {attachment}")
+        return attachment
 
 async def upload_vk_video(session: aiohttp.ClientSession, file_path: str) -> str:
     """Загружает видео в группу ВК и возвращает строку attachment (videoX_Y)"""
+    logging.info(f"🎥 Начинаем загрузку видео в ВК: {os.path.basename(file_path)}")
+    
+    # 1. Получаем URL для загрузки видео
     async with session.get("https://api.vk.com/method/video.save", 
                            params={
                                "group_id": VK_GROUP_ID,
@@ -63,15 +81,21 @@ async def upload_vk_video(session: aiohttp.ClientSession, file_path: str) -> str
                            }) as resp:
         data = await resp.json()
         if "error" in data:
+            logging.error(f"❌ VK video.save error: {data['error']}")
             raise Exception(f"VK video.save: {data['error']}")
         video_data = data["response"]
         upload_url = video_data["upload_url"]
+        logging.info(f"✅ Получен upload_url для видео")
 
+    # 2. Загружаем файл (видео может грузиться долго)
     with open(file_path, "rb") as f:
         async with session.post(upload_url, data={"file": f}) as resp:
-            await resp.text() 
+            await resp.text()
+            logging.info(f"✅ Видео загружено на сервер ВК")
 
-    return f"video{video_data['owner_id']}_{video_data['id']}"
+    attachment = f"video{video_data['owner_id']}_{video_data['id']}"
+    logging.info(f"✅ Видео сохранено: {attachment}")
+    return attachment
 
 @dp.channel_post()
 async def handle_channel_post(message: Message):
@@ -79,6 +103,8 @@ async def handle_channel_post(message: Message):
     if str(message.chat.id) != TG_CHANNEL_ID:
         return
 
+    logging.info(f"📨 Получен новый пост из канала {message.chat.id}")
+    
     text = message.text or message.caption or ""
     attachments = []
     
@@ -94,6 +120,7 @@ async def handle_channel_post(message: Message):
                 file = await bot.get_file(photo.file_id)
                 file_path = f"temp_{file.file_unique_id}.jpg"
                 await bot.download_file(file.file_path, file_path)
+                logging.info(f"📥 Фото скачано из Telegram: {file_path}")
                 attachments.append(await upload_vk_photo(session, file_path))
 
             # --- Обработка ВИДЕО ---
@@ -102,6 +129,7 @@ async def handle_channel_post(message: Message):
                 file = await bot.get_file(video.file_id)
                 file_path = f"temp_{file.file_unique_id}.mp4"
                 await bot.download_file(file.file_path, file_path)
+                logging.info(f"📥 Видео скачано из Telegram: {file_path}")
                 attachments.append(await upload_vk_video(session, file_path))
 
             # --- Публикация на стене ВК ---
@@ -116,22 +144,30 @@ async def handle_channel_post(message: Message):
             if link:
                 params["copyright"] = link
 
+            logging.info(f"📤 Публикуем пост в ВК (текст: {len(text)} символов, вложений: {len(attachments)})")
+            
             async with session.get("https://api.vk.com/method/wall.post", params=params) as resp:
                 result = await resp.json()
                 if "error" in result:
-                    logging.error(f"❌ Ошибка VK API: {result['error']}")
+                    logging.error(f"❌ Ошибка VK API wall.post: {result['error']}")
                 else:
-                    logging.info(f"✅ Успешно опубликовано в ВК! Post ID: {result['response']['post_id']}")
+                    post_id = result['response']['post_id']
+                    logging.info(f"✅ Успешно опубликовано в ВК! Post ID: {post_id}")
+                    if link:
+                        logging.info(f"🔗 Ссылка на оригинал: {link}")
 
         except Exception as e:
-            logging.error(f"❌ Ошибка при обработке поста: {e}")
+            logging.error(f"❌ Ошибка при обработке поста: {e}", exc_info=True)
         finally:
             # Очистка временного файла
             if file_path and os.path.exists(file_path):
                 os.remove(file_path)
+                logging.info(f"🗑️ Временный файл удален: {file_path}")
 
 async def main():
     logging.info("🚀 Бот запущен и слушает новые посты...")
+    logging.info(f"📢 Отслеживаемый канал: {TG_CHANNEL_ID}")
+    logging.info(f"👥 Группа ВК: {VK_GROUP_ID}")
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
