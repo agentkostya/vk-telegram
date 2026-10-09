@@ -1,0 +1,33 @@
+name: Отправить последний пост Telegram в ВК
+
+on:
+  # Ручной запуск: кнопка "Run workflow" в GitHub -> Actions
+  workflow_dispatch:
+  # Раскомментируй, если захочешь автопостинг по расписанию (UTC):
+  # schedule:
+  #   - cron: "15 7 * * *"
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Публикация в ВК
+        env:
+          TG_API_ID: ${{ secrets.TG_API_ID }}
+          TG_API_HASH: ${{ secrets.TG_API_HASH }}
+          TG_SESSION: ${{ secrets.TG_SESSION }}
+          TG_CHANNEL: ${{ secrets.TG_CHANNEL }}
+          VK_TOKEN: ${{ secrets.VK_TOKEN }}
+          VK_GROUP_ID: ${{ secrets.VK_GROUP_ID }}
+          VK_FROM_GROUP: ${{ secrets.VK_FROM_GROUP }}
+          VK_COPYRIGHT: ${{ secrets.VK_COPYRIGHT }}
+        run: python telegram_to_vk.py
