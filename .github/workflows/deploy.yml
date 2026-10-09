@@ -1,12 +1,12 @@
 name: Run Telegram to VK Bot
 
 on:
-  workflow_dispatch: # Позволяет запускать вручную кнопкой "Run workflow"
+  workflow_dispatch:
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 30 # Тестовый запуск на 30 минут
+    timeout-minutes: 30
 
     steps:
       - name: Checkout code
@@ -28,4 +28,5 @@ jobs:
           TG_CHANNEL_ID: ${{ secrets.TG_CHANNEL_ID }}
           VK_TOKEN: ${{ secrets.VK_TOKEN }}
           VK_GROUP_ID: ${{ secrets.VK_GROUP_ID }}
+          VK_USER_ID: ${{ secrets.VK_USER_ID }}  # ← Убедитесь, что эта строка есть!
         run: python main.py
